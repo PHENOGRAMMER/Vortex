@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+httpx
+pydantic
+pydantic-settings
+python-dotenv
+email-validator
+pytest
+
+# --- used in later phases (db / RAG / admin) ---
+sqlalchemy
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt
+chromadb
+nodejs
+react-admin

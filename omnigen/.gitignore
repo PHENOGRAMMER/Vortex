@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.benchmarks/
+backend/venv/
+backend/.env
+*.db
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# OS junk
+.DS_Store
+Thumbs.db

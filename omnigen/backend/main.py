@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
 import logging
+import os
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
+from fastapi.responses import StreamingResponse
 
 from backend.config import get_settings
 from backend.router.task_router import route, classify_task
@@ -17,6 +19,38 @@ from backend.auth.models import User
 from backend.chat.models import ChatMessage, ChatSession
 from backend.admin.routes import router as admin_router
 from backend.admin.logger import log_request
+from backend.routes import chat
+from backend.core.sse import sse_event
+from backend.services.stream_service import fake_stream
+from backend import providers
+from backend.routes.chat import router as chat_router
+from backend.api.providers import router as providers_router
+from backend.auth.routes import router as auth_router
+from backend.api import providers
+
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["FAISS_NUM_THREADS"] = "1"
+
+
+router = APIRouter()
+
+
+@router.post("/stream")
+async def stream_chat():
+
+    async def event_generator():
+        async for event in fake_stream():
+            yield sse_event(event)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
@@ -41,8 +75,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth_router, prefix="/auth", tags=["auth"])
-app.include_router(admin_router, prefix="/admin", tags=["admin"])
+app.include_router(
+    auth_router,
+    prefix="/auth",
+    tags=["Authentication"]
+)
+
+app.include_router(
+    chat_router,
+    prefix="/api/chat",
+    tags=["Chat"]
+)
+
+app.include_router(
+    providers_router,
+    prefix="/api/providers",
+    tags=["Providers"]
+)
+from backend.router.rag_router import router as rag_router
+app.include_router(rag_router, prefix="/rag", tags=["rag"])
+app.include_router(
+    chat.router,
+    prefix="/api/chat",
+    tags=["Chat"]
+)
+app.include_router(
+    providers.router,
+    prefix="/api/providers",
+    tags=["Providers"],
+)
 
 
 class GenerateRequest(BaseModel):

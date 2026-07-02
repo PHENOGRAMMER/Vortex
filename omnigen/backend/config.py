@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     ollama_text_model: str = "llama3.1"
     ollama_code_model: str = "deepseek-coder-v2"
 
+    # --- Model routing defaults ---
+    default_provider: str = "ollama"
+    default_model: str = "qwen2.5:7b"
+
     # --- HuggingFace Inference API (free tier, used for image generation) ---
     hf_api_key: str = ""
     hf_image_model: str = "black-forest-labs/FLUX.1-schnell"

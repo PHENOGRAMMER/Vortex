@@ -13,5 +13,8 @@ python-jose[cryptography]
 passlib[bcrypt]
 bcrypt
 chromadb
+faiss-cpu
+python-multipart
+
 nodejs
 react-admin

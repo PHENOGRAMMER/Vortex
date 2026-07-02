@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { useAuth } from "../context/AuthContextCore";
-import { chatApi, generateApi } from "../api";
+import { chatApi } from "../api";
 import Navbar from "./Navbar";
+import { useStreamingChat } from "../hooks/useStreamingChat";
 
 const HISTORY_LIMIT = 8;
 const HISTORY_TEXT_LIMIT = 3000;
@@ -76,6 +77,7 @@ function buildSafeHistory(messages) {
 
 export default function Chat() {
   const { token } = useAuth();
+  const { stream, cancel, status, streaming } = useStreamingChat(token);
   const [sessions, setSessions] = useState([]);
   const [sessionId, setSessionId] = useState(null);
   const [tokenUsage, setTokenUsage] = useState({ used: 0, limit: 24000, remaining: 24000 });
@@ -83,99 +85,134 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [imageModel, setImageModel] = useState("black-forest-labs/FLUX.1-schnell");
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const bottomRef = useRef(null);
   const textareaRef = useRef(null);
+  const bottomRef = useRef(null);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  useEffect(() => {
-    if (!token) return;
-    Promise.resolve().then(async () => {
-      try {
-        const rows = await chatApi.sessions(token);
-        setSessions(rows);
-        if (rows.length > 0 && !sessionId) await loadSession(rows[0].id);
-      } catch (err) {
-        setError(err.message);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
-
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 192) + "px";
-    }
-  }, [input]);
-
-  async function refreshSessions() {
-    const rows = await chatApi.sessions(token);
-    setSessions(rows);
-  }
-
-  async function loadSession(id) {
-    const detail = await chatApi.session(id, token);
-    setSessionId(detail.id);
-    setMessages(detail.messages);
-    setTokenUsage({
-      used: detail.tokens_used,
-      limit: detail.token_limit,
-      remaining: Math.max(0, detail.token_limit - detail.tokens_used),
-    });
-    setError("");
-  }
-
-  async function handleNewChat() {
-    try {
-      const created = await chatApi.createSession(token);
-      setSessionId(created.id);
-      setMessages([]);
-      setTokenUsage({ used: created.tokens_used, limit: created.token_limit, remaining: created.token_limit });
-      await refreshSessions();
-      setError("");
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  async function handleSend() {
-    if (!input.trim() || sending) return;
-    if (tokenUsage.used >= tokenUsage.limit) {
-      setError("This chat session has reached its token limit. Start a new chat to continue.");
-      return;
-    }
-    const prompt = input.trim();
-    const history = buildSafeHistory(messages);
-    setMessages((prev) => [...prev, { role: "user", content: prompt }]);
-    setInput("");
-    setError("");
-    setSending(true);
-    try {
-      const res = await generateApi.generate(prompt, history, false, token, imageModel, sessionId);
-      setSessionId(res.session_id);
-      setTokenUsage(res.token_usage);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: res.content, meta: { task_type: res.task_type, provider: res.provider, model: res.model, latency_ms: res.latency_ms } },
-      ]);
-      await refreshSessions();
-    } catch (err) {
-      setError(err.message);
-      if (err.detail?.used !== undefined) setTokenUsage(err.detail);
-    } finally {
-      setSending(false);
-    }
-  }
 
   const tokenPercent = Math.min(100, Math.round((tokenUsage.used / tokenUsage.limit) * 100));
   const tokenBarColor =
     tokenPercent >= 100 ? "bg-red-500" : tokenPercent >= 80 ? "bg-amber-400" : "bg-gradient-to-r from-violet-500 to-fuchsia-500";
   const activeSession = sessions.find((s) => s.id === sessionId);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: sending ? "auto" : "smooth", block: "end" });
+  }, [messages, sending]);
+
+  async function loadSession(sessionToLoad) {
+    if (!token) return;
+
+    try {
+      const detail = await chatApi.session(sessionToLoad, token);
+      setSessionId(detail.id);
+      setMessages(detail.messages || []);
+      setTokenUsage({
+        used: detail.tokens_used,
+        limit: detail.token_limit,
+        remaining: Math.max(0, detail.token_limit - detail.tokens_used),
+      });
+      setError("");
+    } catch (err) {
+      setError(err.message || "Could not load that chat session.");
+    }
+  }
+
+  async function handleNewChat() {
+    if (!token) return;
+
+    try {
+      const session = await chatApi.createSession(token);
+      setSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
+      setSessionId(session.id);
+      setMessages([]);
+      setTokenUsage({ used: 0, limit: session.token_limit, remaining: session.token_limit });
+      setInput("");
+      setError(null);
+      textareaRef.current?.focus();
+    } catch (err) {
+      setError(err.message || "Could not create a new chat.");
+    }
+  }
+
+  async function handleSend() {
+    const prompt = input.trim();
+    if (!prompt || sending || !token) return;
+
+    const previousMessages = messages;
+
+    setSending(true);
+    setError(null);
+    setInput("");
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "user",
+        content: prompt,
+      },
+      {
+        role: "assistant",
+        content: "",
+      },
+    ]);
+
+    try {
+      let assistant = "";
+      await stream(prompt, (token) => {
+        assistant += token;
+        setMessages((prev) => {
+          const copy = [...prev];
+          copy[copy.length - 1] = {
+            ...copy[copy.length - 1],
+            content: assistant
+          };
+          return copy;
+        });
+      });
+    } catch (err) {
+      setMessages(previousMessages);
+      setInput(prompt);
+      setError(err.message || "Failed to send message.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshSessions() {
+      if (!token) {
+        setSessions([]);
+        setMessages([]);
+        setSessionId(null);
+        setTokenUsage({ used: 0, limit: 24000, remaining: 24000 });
+        setError(null);
+        return;
+      }
+
+      try {
+        const sessionList = await chatApi.sessions(token);
+        if (cancelled) return;
+
+        setSessions(sessionList);
+
+        if (!sessionId && sessionList.length > 0) {
+          await loadSession(sessionList[0].id);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || "Could not load chat sessions.");
+        }
+      }
+    }
+
+    refreshSessions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   return (
     /*
@@ -193,15 +230,14 @@ export default function Chat() {
 
         {/* ── Sidebar ─────────────────────────────────── */}
         <aside
-          className={`${sidebarOpen ? "w-64" : "w-0"} shrink-0 overflow-hidden transition-all duration-300 ease-in-out bg-[#0e0e18] border-r border-white/5 flex flex-col`}
-        >
+          className={`${sidebarOpen ? "w-64" : "w-0"} shrink-0 overflow-hidden transition-all duration-300 ease-in-out bg-[#0e0e18] border-r border-white/5 flex flex-col`}>
           {/* New chat button */}
           <div className="p-3 border-b border-white/5">
             <button
               type="button"
               onClick={handleNewChat}
-              className="w-full flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 hover:bg-violet-500/10 hover:border-violet-500/30 px-3 py-2.5 text-sm font-medium text-neutral-200 transition-all"
-            >
+              className="w-full flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 hover:bg-violet-500/10 hover:border-violet-500/30 px-3 py-2.5 text-sm font-medium text-neutral-200 transition-all">
+            
               <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
               </svg>
@@ -278,7 +314,7 @@ export default function Chat() {
 
               {messages.length === 0 && (
                 <div className="mt-24 text-center">
-                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 border border-white/8 flex items-center justify-center text-2xl mx-auto mb-6">
+                  <div className="w-14 h-14 rounded-2xl bg-linear-to-br from-violet-500/20 to-fuchsia-500/20 border border-white/8 flex items-center justify-center text-2xl mx-auto mb-6">
                     ✨
                   </div>
                   <h1 className="text-3xl font-semibold tracking-tight text-white mb-3">
@@ -297,7 +333,7 @@ export default function Chat() {
                     className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center text-xs font-bold border ${
                       m.role === "user"
                         ? "bg-white/8 border-white/10 text-neutral-300"
-                        : "bg-gradient-to-br from-violet-500/30 to-fuchsia-500/30 border-violet-500/20 text-violet-300"
+                        : "bg-linear-to-br from-violet-500/30 to-fuchsia-500/30 border-violet-500/20 text-violet-300"
                     }`}
                   >
                     {m.role === "user" ? "U" : "AI"}
@@ -328,7 +364,7 @@ export default function Chat() {
               {/* Typing animation */}
               {sending && (
                 <div className="flex gap-4 py-5">
-                  <div className="w-8 h-8 shrink-0 rounded-lg flex items-center justify-center text-xs font-bold bg-gradient-to-br from-violet-500/30 to-fuchsia-500/30 border border-violet-500/20 text-violet-300">
+                  <div className="w-8 h-8 shrink-0 rounded-lg flex items-center justify-center text-xs font-bold bg-linear-to-br from-violet-500/30 to-fuchsia-500/30 border border-violet-500/20 text-violet-300">
                     AI
                   </div>
                   <div className="flex items-center gap-1.5 pt-2.5">
@@ -340,8 +376,15 @@ export default function Chat() {
               )}
 
               {error && (
-                <div className="rounded-xl border border-red-500/20 bg-red-500/8 px-4 py-3 text-sm text-red-300">
-                  ⚠️ {error}
+                <div className="rounded-xl border border-red-500/20 bg-red-500/8 px-4 py-3 text-sm text-red-300 flex items-center justify-between gap-3">
+                  <span>⚠️ {error}</span>
+                  <button
+                    type="button"
+                    onClick={() => setError(null)}
+                    className="shrink-0 rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-neutral-200 transition-colors hover:bg-white/10"
+                  >
+                    Retry
+                  </button>
                 </div>
               )}
               <div ref={bottomRef} />
@@ -366,6 +409,27 @@ export default function Chat() {
                 </select>
               </div>
 
+              {streaming && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-violet-500/20 bg-violet-500/8 px-3 py-2 text-sm text-violet-100 mb-3">
+                  <div className="min-w-0">
+                    <div className="font-medium">{status}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={cancel}
+                    className="shrink-0 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:bg-white/10"
+                  >
+                    Stop Generation
+                  </button>
+                </div>
+              )}
+
+              {!streaming && status && (
+                <div className="rounded-xl border border-white/8 bg-white/5 px-3 py-2 text-sm text-neutral-400 mb-3">
+                  {status}
+                </div>
+              )}
+
               {/* Textarea row */}
               <form
                 onSubmit={(e) => { e.preventDefault(); handleSend(); }}
@@ -380,12 +444,12 @@ export default function Chat() {
                   }}
                   placeholder="Message OmniGen..."
                   rows={1}
-                  className="flex-1 min-h-[44px] max-h-48 resize-none bg-transparent text-white px-3 py-2.5 outline-none placeholder:text-neutral-600 text-sm leading-relaxed"
+                  className="flex-1 min-h-11 max-h-48 resize-none bg-transparent text-white px-3 py-2.5 outline-none placeholder:text-neutral-600 text-sm leading-relaxed"
                 />
                 <button
                   type="submit"
                   disabled={sending || !input.trim()}
-                  className="flex items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 disabled:from-neutral-800 disabled:to-neutral-800 disabled:text-neutral-600 text-white h-[40px] w-[40px] shrink-0 transition-all shadow-lg shadow-violet-500/20 disabled:shadow-none mb-0.5 mr-0.5"
+                  className="flex items-center justify-center rounded-xl bg-linear-to-br from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 disabled:from-neutral-800 disabled:to-neutral-800 disabled:text-neutral-600 text-white h-10 w-10 shrink-0 transition-all shadow-lg shadow-violet-500/20 disabled:shadow-none mb-0.5 mr-0.5"
                   aria-label="Send"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 ml-0.5">

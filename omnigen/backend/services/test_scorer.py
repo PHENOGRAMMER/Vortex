@@ -1,16 +1,53 @@
 import asyncio
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from uuid import uuid4
 
-from backend.models.chat_request import ChatRequest
-from backend.models.chat_request import ChatMessage
-
-from backend.services.provider_resolver import ProviderResolver
+from backend.models.chat_request import ChatMessage, ChatRequest
+from backend.models.provider_candidate import ProviderCandidate
+from backend.models.router_metrics import RouterMetrics
+from backend.services.metrics_manager import MetricsManager
 from backend.services.model_scorer import ModelScorer
 
 
-async def main():
+def create_metric(provider, latency, success):
 
-    request = ChatRequest(
+    return RouterMetrics(
+        request_id=str(uuid4()),
+        timestamp=datetime.now(UTC),
+        provider=provider,
+        model="demo-model",
+        task="code",
+        capability="code",
+        latency_ms=latency,
+        success=success,
+    )
 
+
+def build_candidate(provider_name):
+
+    provider = SimpleNamespace(
+        id=provider_name.lower().replace(" ", "_"),
+        name=provider_name,
+    )
+
+    model = SimpleNamespace(
+        id="demo-model",
+        capabilities=["code"],
+        local=True,
+        speed="fast",
+        cost=0,
+    )
+
+    return ProviderCandidate(
+        provider=provider,
+        model=model,
+    )
+
+
+def build_request():
+
+    return ChatRequest(
         messages=[
             ChatMessage(
                 role="user",
@@ -19,19 +56,60 @@ async def main():
         ]
     )
 
-    providers = await ProviderResolver.resolve(
-        request
-    )
 
-    for provider in providers:
+async def main():
 
-        score = await ModelScorer.score(
-            provider,
-            request,
+    MetricsManager.clear()
+
+    # Simulate runtime history
+
+    for _ in range(18):
+
+        MetricsManager.add(
+            create_metric(
+                "Test Provider",
+                850,
+                True,
+            )
         )
 
-        print()
-        print(score)
+    for _ in range(2):
+
+        MetricsManager.add(
+            create_metric(
+                "Test Provider",
+                0,
+                False,
+            )
+        )
+
+    candidate = build_candidate(
+        "Test Provider"
+    )
+
+    score = await ModelScorer.score(
+        candidate,
+        build_request(),
+    )
+
+    print()
+    print("=" * 70)
+    print("MODEL SCORE")
+    print("=" * 70)
+
+    print("Provider :", score.provider)
+    print("Model    :", score.model)
+    print("Score    :", score.score)
+
+    print()
+
+    print("Reasons")
+
+    for reason in score.reasons:
+
+        print(" •", reason)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+
+    asyncio.run(main())

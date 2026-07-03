@@ -5,6 +5,9 @@ from backend.configs.settings import settings
 from backend.models.chat_request import ChatRequest
 from backend.core.stream_context import StreamContext
 from backend.models.model_info import ModelInfo
+from backend.core.events import StreamEvent
+
+from typing import AsyncIterator, AsyncGenerator
 
 
 class OllamaProvider(BaseProvider):
@@ -30,20 +33,21 @@ class OllamaProvider(BaseProvider):
     async def stream_chat(
         self,
         request: ChatRequest,
-    ):
-
-        stream = StreamContext()
+    ) -> AsyncIterator[StreamEvent]:
+        stream_id = request.metadata["stream_id"]
+        sequence = 1
 
         model = request.model or settings.DEFAULT_MODEL
 
-        yield stream.status(
-            f"Using Ollama ({model})"
+        yield StreamEvent.status(
+            stream_id,
+            sequence,
+            f"Using Ollama ({model})",
         )
+        sequence += 1
 
         payload = {
-
             "model": model,
-
             "messages": [
                 message.dict()
                 for message in request.messages
@@ -52,23 +56,26 @@ class OllamaProvider(BaseProvider):
         }
 
         async for chunk in self.client.stream_chat(payload):
-
             if "message" in chunk:
-
                 content = chunk["message"].get(
                     "content",
                     "",
                 )
 
                 if content:
-
-                    yield stream.token(content)
+                    yield StreamEvent.token(
+                        stream_id,
+                        sequence,
+                        content,
+                    )
+                    sequence += 1
 
             if chunk.get("done"):
-
-                break
-
-        yield stream.done()
+                yield StreamEvent.done(
+                    stream_id,
+                    sequence,
+                )
+                return
 
     async def complete(
             self,

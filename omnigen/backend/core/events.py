@@ -7,6 +7,7 @@ import uuid
 class StreamEvent:
 
     stream_id: str
+
     sequence: int
 
     type: str
@@ -33,4 +34,115 @@ class StreamEvent:
             "type": self.type,
 
             "data": self.data,
+
         }
+
+    @classmethod
+    def status(
+
+        cls,
+
+        stream_id: str,
+
+        sequence: int,
+
+        message: str,
+
+    ):
+
+        return cls(
+
+            stream_id=stream_id,
+
+            sequence=sequence,
+
+            type="status",
+
+            data={
+
+                "message": message,
+
+            },
+
+        )
+
+    @classmethod
+    def token(
+
+        cls,
+
+        stream_id: str,
+
+        sequence: int,
+
+        content: str,
+
+    ):
+
+        return cls(
+
+            stream_id=stream_id,
+
+            sequence=sequence,
+
+            type="token",
+
+            data={
+
+                "content": content,
+
+            },
+
+        )
+
+    @classmethod
+    def error(
+
+        cls,
+
+        stream_id: str,
+
+        sequence: int,
+
+        message: str,
+
+    ):
+
+        return cls(
+
+            stream_id=stream_id,
+
+            sequence=sequence,
+
+            type="error",
+
+            data={
+
+                "message": message,
+
+            },
+
+        )
+
+    @classmethod
+    def done(
+
+        cls,
+
+        stream_id: str,
+
+        sequence: int,
+
+    ):
+
+        return cls(
+
+            stream_id=stream_id,
+
+            sequence=sequence,
+
+            type="done",
+
+            data={},
+
+        )

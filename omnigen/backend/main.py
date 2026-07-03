@@ -27,6 +27,9 @@ from backend.routes.chat import router as chat_router
 from backend.api.providers import router as providers_router
 from backend.auth.routes import router as auth_router
 from backend.api import providers
+from backend.routes.router import router as router_stats_router
+from backend.router.rag_router import router as rag_router
+from backend.routes.openai import router as openai_router
 
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["FAISS_NUM_THREADS"] = "1"
@@ -78,33 +81,32 @@ app.add_middleware(
 app.include_router(
     auth_router,
     prefix="/auth",
-    tags=["Authentication"]
+    tags=["Authentication"],
 )
 
 app.include_router(
     chat_router,
     prefix="/api/chat",
-    tags=["Chat"]
+    tags=["Chat"],
 )
 
 app.include_router(
     providers_router,
-    prefix="/api/providers",
-    tags=["Providers"]
-)
-from backend.router.rag_router import router as rag_router
-app.include_router(rag_router, prefix="/rag", tags=["rag"])
-app.include_router(
-    chat.router,
-    prefix="/api/chat",
-    tags=["Chat"]
-)
-app.include_router(
-    providers.router,
-    prefix="/api/providers",
-    tags=["Providers"],
 )
 
+app.include_router(
+    rag_router,
+)
+
+app.include_router(
+    router_stats_router,
+)
+
+app.include_router(
+    openai_router,
+    prefix="/v1",
+    tags=["OpenAI Compatible"]
+)
 
 class GenerateRequest(BaseModel):
     prompt: str

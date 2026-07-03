@@ -1,13 +1,49 @@
-from backend.models.provider_candidate import ProviderCandidate
 from backend.models.chat_request import ChatRequest
+from backend.models.provider_candidate import ProviderCandidate
 from backend.models.score_card import ScoreCard
 
+from backend.services.provider_statistics import ProviderStatisticsService
 from backend.services.request_analyzer import RequestAnalyzer
 from backend.services.routing_rules import RoutingRules
-from backend.services.health_manager import HealthManager
 
 
 class ModelScorer:
+
+    @staticmethod
+    def _success_rate_bonus(success_rate: float) -> int:
+        if success_rate >= 100:
+            return 20
+        if success_rate >= 95:
+            return 18
+        if success_rate >= 90:
+            return 16
+        if success_rate >= 80:
+            return 12
+        if success_rate >= 70:
+            return 8
+        return 3
+
+    @staticmethod
+    def _latency_bonus(latency_ms: float) -> int:
+        if latency_ms < 500:
+            return 20
+        if latency_ms < 1000:
+            return 18
+        if latency_ms < 2000:
+            return 15
+        if latency_ms < 3000:
+            return 10
+        return 5
+
+    @staticmethod
+    def _reliability_bonus(consecutive_failures: int) -> int:
+        if consecutive_failures <= 0:
+            return 15
+        if consecutive_failures == 1:
+            return 10
+        if consecutive_failures == 2:
+            return 5
+        return -30
 
     @staticmethod
     async def score(
@@ -33,27 +69,37 @@ class ModelScorer:
                 f"Supports {capability}"
             )
 
-        healthy = await HealthManager.is_healthy(
-            candidate.provider
+        stats = ProviderStatisticsService.get(
+            candidate.provider.name
         )
 
-        if healthy:
+        success_bonus = ModelScorer._success_rate_bonus(
+            stats.success_rate
+        )
+        score += success_bonus
+        reasons.append(
+            f"Success Rate ({stats.success_rate}%) +{success_bonus}"
+        )
 
-            score += 40
+        latency_bonus = ModelScorer._latency_bonus(
+            stats.average_latency
+        )
+        score += latency_bonus
+        reasons.append(
+            f"Latency ({stats.average_latency}ms) +{latency_bonus}"
+        )
 
-            reasons.append(
-                "Healthy"
-            )
+        reliability_bonus = ModelScorer._reliability_bonus(
+            stats.consecutive_failures
+        )
+        score += reliability_bonus
+        reasons.append(
+            f"Reliability ({stats.consecutive_failures} consecutive failures) {reliability_bonus:+d}"
+        )
 
-        else:
-
-            reasons.append(
-                "Unhealthy"
-            )
-        
         if candidate.model.local:
-            
-            score+=20
+
+            score += 20
 
             reasons.append(
                 "Local model"

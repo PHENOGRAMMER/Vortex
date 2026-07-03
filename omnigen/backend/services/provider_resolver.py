@@ -3,6 +3,7 @@ from backend.providers.factory import ProviderFactory
 from backend.services.request_analyzer import RequestAnalyzer
 from backend.services.routing_rules import RoutingRules
 from backend.services.model_scorer import ModelScorer
+from backend.services.circuit_breaker import CircuitBreaker
 
 from backend.models.chat_request import ChatRequest
 from backend.models.provider_candidate import ProviderCandidate
@@ -26,11 +27,27 @@ class ProviderResolver:
 
         candidates = []
 
+        # ---------------------------------------------
+        # Collect candidate models
+        # ---------------------------------------------
+
         for provider_id in providers:
 
             provider = ProviderFactory.get(provider_id)
 
             if provider is None:
+                continue
+
+            if not CircuitBreaker.can_execute(
+                provider.name,
+            ):
+
+                print()
+                print("=" * 70)
+                print("CIRCUIT OPEN")
+                print(provider.name)
+                print("=" * 70)
+
                 continue
 
             try:
@@ -64,29 +81,32 @@ class ProviderResolver:
 
                 )
 
+        # ---------------------------------------------
+        # Score every candidate
+        # ---------------------------------------------
+
         scored_candidates = []
 
         for candidate in candidates:
 
             scorecard = await ModelScorer.score(
-
                 candidate,
-
                 request,
-
             )
+
+            candidate.score = scorecard.score
+            candidate.reasons = scorecard.reasons
 
             scored_candidates.append(
-
                 (
-
                     candidate,
-
                     scorecard,
-
                 )
-
             )
+
+        # ---------------------------------------------
+        # Sort by score
+        # ---------------------------------------------
 
         scored_candidates.sort(
 
@@ -96,31 +116,34 @@ class ProviderResolver:
 
         )
 
-        print()
+        # ---------------------------------------------
+        # Print scores
+        # ---------------------------------------------
 
+        print()
         print("=" * 80)
         print("MODEL SCORES")
         print("=" * 80)
 
-        for _, score in scored_candidates:
+        for candidate, scorecard in scored_candidates:
 
             print(
-
-                f"{score.provider:<20}"
-
-                f"{score.model:<30}"
-
-                f"{score.score}"
-
+                f"{candidate.provider.name:<20}"
+                f"{candidate.model.id:<30}"
+                f"{candidate.score}"
             )
 
-            for reason in score.reasons:
+            for reason in candidate.reasons:
 
                 print(f"   • {reason}")
 
             print()
 
         print("=" * 80)
+
+        # ---------------------------------------------
+        # Return ordered candidates
+        # ---------------------------------------------
 
         return [
 

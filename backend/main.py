@@ -94,6 +94,8 @@ app.include_router(
 
 app.include_router(
     providers_router,
+    prefix="/api/providers",
+    tags=["Providers"],
 )
 
 app.include_router(

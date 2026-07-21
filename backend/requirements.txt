@@ -1,0 +1,24 @@
+fastapi
+uvicorn[standard]
+httpx
+huggingface_hub
+pydantic
+pydantic-settings
+python-dotenv
+email-validator
+pytest
+
+# --- used in later phases (db / RAG / admin) ---
+sqlalchemy
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt
+chromadb
+faiss-cpu
+rank-bm25
+python-multipart
+sentence-transformers
+python-docx
+PyMuPDF
+GitPython
+Pillow

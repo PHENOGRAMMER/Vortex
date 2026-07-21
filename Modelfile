@@ -1,0 +1,4 @@
+FROM bge-m3
+
+PARAMETER num_ctx 4096
+PARAMETER num_batch 1024

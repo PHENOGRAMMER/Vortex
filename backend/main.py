@@ -450,6 +450,25 @@ async def generate(
 
 # In production the Docker image builds the Vite app into this directory.
 # Mounting it last keeps all API and OAuth routes above it reachable.
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+import os
+
 frontend_dist = Path(os.getenv("FRONTEND_DIST_DIR", "frontend/dist"))
+
 if frontend_dist.is_dir():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+    # Serve static assets
+    app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        return FileResponse(frontend_dist / "favicon.ico")
+
+    @app.get("/favicon.svg", include_in_schema=False)
+    async def favicon_svg():
+        return FileResponse(frontend_dist / "favicon.svg")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa(full_path: str):
+        return FileResponse(frontend_dist / "index.html")

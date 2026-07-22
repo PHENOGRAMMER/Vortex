@@ -1,17 +1,21 @@
 from backend.providers.factory import ProviderFactory
 from backend.configs.settings import settings
-import asyncio
 
 
 class EmbeddingService:
+    """
+    Provider-agnostic embedding service.
+
+    The configured provider is responsible for generating embeddings.
+    Supported providers currently include:
+        - ollama
+        - gemini
+    """
 
     def __init__(self):
-        self.provider = (
-            ProviderFactory.get("ollama")
-            if settings.EMBEDDING_PROVIDER == "ollama"
-            else None
+        self.provider = ProviderFactory.get(
+            settings.EMBEDDING_PROVIDER
         )
-        self._local_model = None
 
     async def embed(
         self,
@@ -21,32 +25,33 @@ class EmbeddingService:
         if not texts:
             return []
 
-        if settings.EMBEDDING_PROVIDER == "sentence-transformers":
-            return await asyncio.to_thread(self._embed_with_sentence_transformers, texts)
+        print("=" * 70)
+        print("EMBEDDING SERVICE")
+        print("=" * 70)
+        print(f"Provider : {settings.EMBEDDING_PROVIDER}")
+        print(f"Model    : {settings.DEFAULT_EMBEDDING_MODEL}")
+        print(f"Texts    : {len(texts)}")
+        print("=" * 70)
 
-        if self.provider is None:
-            raise RuntimeError(f"Unsupported embedding provider: {settings.EMBEDDING_PROVIDER}")
+        vectors = []
 
-        print("EMBEDDING SERVICE Start")
-        result = []
-        # Large documents can contain dozens of chunks.  Sending bounded
-        # batches prevents one slow Ollama request from making the upload look
-        # permanently stuck and works with models that enforce input limits.
-        for start in range(0, len(texts), settings.EMBEDDING_BATCH_SIZE):
-            batch = texts[start:start + settings.EMBEDDING_BATCH_SIZE]
-            result.extend(await self.provider.embeddings(
+        for start in range(
+            0,
+            len(texts),
+            settings.EMBEDDING_BATCH_SIZE,
+        ):
+
+            batch = texts[
+                start:start + settings.EMBEDDING_BATCH_SIZE
+            ]
+
+            batch_vectors = await self.provider.embeddings(
                 input=batch,
                 model=settings.DEFAULT_EMBEDDING_MODEL,
-            ))
+            )
 
-        print("Embedding Service End.")
+            vectors.extend(batch_vectors)
 
-        return result
+        print(f"Generated {len(vectors)} embeddings.")
 
-    def _embed_with_sentence_transformers(self, texts: list[str]) -> list[list[float]]:
-        """CPU-friendly hosted fallback that does not require Ollama."""
-        if self._local_model is None:
-            from sentence_transformers import SentenceTransformer
-            self._local_model = SentenceTransformer(settings.DEFAULT_EMBEDDING_MODEL)
-        vectors = self._local_model.encode(texts, normalize_embeddings=True)
-        return vectors.tolist()
+        return vectors

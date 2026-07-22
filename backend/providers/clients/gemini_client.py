@@ -84,6 +84,13 @@ class GeminiClient:
                 json=payload,
             )
 
+            if response.is_error:
+                print("="* 70)
+                print("Gemini Embedding Error")
+                print("Status Code: ", response.status_code)
+                print("Body: ", response.text)
+                print("="* 70)
+
             response.raise_for_status()
 
             return response.json()
@@ -94,31 +101,63 @@ class GeminiClient:
         model: str = "text-embedding-004",
     ):
 
-        # Gemini embedContent accepts one input at a time
-        if isinstance(text, list):
-            text = text[0]
-
-        url = (
-            f"{self.base_url}/models/"
-            f"{model}:embedContent"
-        )
-
         params = {
             "key": self.api_key,
         }
 
-        payload = {
-            "model": f"models/{model}",
-            "content": {
-                "parts": [
-                    {
-                        "text": text,
-                    }
-                ]
-            },
-        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
 
-        async with httpx.AsyncClient() as client:
+            # Single input
+            if isinstance(text, str):
+
+                url = (
+                    f"{self.base_url}/models/"
+                    f"{model}:embedContent"
+                )
+
+                payload = {
+                    "model": f"models/{model}",
+                    "content": {
+                        "parts": [
+                            {
+                                "text": text,
+                            }
+                        ]
+                    },
+                }
+
+                response = await client.post(
+                    url,
+                    headers=self.headers,
+                    params=params,
+                    json=payload,
+                )
+
+                response.raise_for_status()
+
+                return response.json()
+
+            # Multiple inputs
+            url = (
+                f"{self.base_url}/models/"
+                f"{model}:batchEmbedContents"
+            )
+
+            payload = {
+                "requests": [
+                    {
+                        "model": f"models/{model}",
+                        "content": {
+                            "parts": [
+                                {
+                                    "text": item,
+                                }
+                            ]
+                        },
+                    }
+                    for item in text
+                ]
+            }
 
             response = await client.post(
                 url,
@@ -126,13 +165,6 @@ class GeminiClient:
                 params=params,
                 json=payload,
             )
-
-            # Temporary debugging
-            print("=" * 70)
-            print("GEMINI EMBEDDINGS")
-            print(response.status_code)
-            print(response.text)
-            print("=" * 70)
 
             response.raise_for_status()
 

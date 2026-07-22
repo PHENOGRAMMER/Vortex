@@ -20,9 +20,9 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     DEFAULT_PROVIDER: str = "ollama"
     DEFAULT_MODEL: str = "qwen2.5-coder:7b"
-    DEFAULT_EMBEDDING_MODEL: str = "bge-m3-b1024"
+    DEFAULT_EMBEDDING_MODEL: str = "text-embedding-004"
     EMBEDDING_DIMENSION: int = 1024
-    EMBEDDING_PROVIDER: str = "ollama"
+    EMBEDDING_PROVIDER: str = "gemini"
     EMBEDDING_BATCH_SIZE: int = 16
     EMBEDDING_TIMEOUT_SECONDS: float = 60.0
 

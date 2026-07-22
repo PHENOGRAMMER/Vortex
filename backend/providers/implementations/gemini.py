@@ -166,19 +166,19 @@ class GeminiProvider(BaseProvider):
             model=model,
         )
 
-        embeddings = []
-
-        # batchEmbedContents response
+        # Response from batchEmbedContents
         if "embeddings" in response:
-            for item in response["embeddings"]:
-                embeddings.append(
-                    item.get("values", [])
-                )
+            return [
+                item.get("values", [])
+                for item in response["embeddings"]
+            ]
 
-        # embedContent response
-        elif "embedding" in response:
-            embeddings.append(
+        # Response from embedContent
+        if "embedding" in response:
+            return [
                 response["embedding"].get("values", [])
-            )
+            ]
 
-        return embeddings
+        raise RuntimeError(
+            f"Unexpected Gemini embedding response: {response}"
+        )
